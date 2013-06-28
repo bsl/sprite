@@ -12,20 +12,20 @@ import qualified Graphics.Rendering.OpenGL as GL
 
 --------------------------------------------------------------------------------
 
-makeDisplayListFromImage :: FilePath -> Double -> IO GL.DisplayList
-makeDisplayListFromImage fp unitsPerPixel = do
+makeDisplayListFromImage :: FilePath -> IO GL.DisplayList
+makeDisplayListFromImage fp = do
     e <- readRImage fp
     case e of
       Left _ -> error "oh no"  -- this is not a real API yet
       Right rimg ->
           GL.defineNewList GL.Compile $ do
               GL.colorMaterial GL.$= Just (GL.Front, GL.AmbientAndDiffuse)
-              drawRImage rimg unitsPerPixel
+              drawRImage rimg
 
 --------------------------------------------------------------------------------
 
-drawRImage :: RImage -> Double -> IO ()
-drawRImage rimg unitsPerPixel = do
+drawRImage :: RImage -> IO ()
+drawRImage rimg = do
     GL.shadeModel GL.$= GL.Flat
     normal 0 0 1
     forM_ (rImageRGs rimg) $ \rg -> do
@@ -45,8 +45,8 @@ drawRImage rimg unitsPerPixel = do
                   imgwd2 = imgw / 2
                   imghd2 = imgh / 2
                   project row col =
-                      let x = (col - imgwd2) * unitsPerPixel
-                          y = (imghd2 - row) * unitsPerPixel
+                      let x = (col - imgwd2)
+                          y = (imghd2 - row)
                       in (x, y)
                   (ulx, uly) = project  rrow      rcol
                   (urx, ury) = project  rrow     (rcol+rw)

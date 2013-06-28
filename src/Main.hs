@@ -15,21 +15,18 @@ import Sprite (makeDisplayListFromImage)
 --------------------------------------------------------------------------------
 
 data Env = Env
-    { envEventsChan    :: TChan Event
-    , envWindow        :: !GLFW.Window
-    , envMegaMan       :: !GL.DisplayList
-    , envZDistClosest  :: !Double
-    , envZDistFarthest :: !Double
+    { envEventsChan :: TChan Event
+    , envWindow     :: !GLFW.Window
+    , envMegaMan    :: !GL.DisplayList
     }
 
 data State = State
-    { stateWindowWidth      :: !Int
-    , stateWindowHeight     :: !Int
-    , stateIsCursorInWindow :: !Bool
-    , stateViewXAngle       :: !Double
-    , stateViewYAngle       :: !Double
-    , stateViewZAngle       :: !Double
-    , stateZDist            :: !Double
+    { stateWindowWidth  :: !Int
+    , stateWindowHeight :: !Int
+    , stateViewXAngle   :: !Double
+    , stateViewYAngle   :: !Double
+    , stateViewZAngle   :: !Double
+    , stateScaleFactor  :: !Double
     }
 
 type Demo = RWST Env () State IO
@@ -39,7 +36,6 @@ type Demo = RWST Env () State IO
 data Event =
     EventError      !GLFW.Error !String
   | EventWindowSize !GLFW.Window !Int !Int
-  | EventScroll     !GLFW.Window !Double !Double
   | EventKey        !GLFW.Window !GLFW.Key !Int !GLFW.KeyState !GLFW.ModifierKeys
   deriving Show
 
@@ -55,12 +51,11 @@ main = do
     withWindow width height "Mega Man" $ \win -> do
         GLFW.setErrorCallback          $ Just $ errorCallback      eventsChan
         GLFW.setWindowSizeCallback win $ Just $ windowSizeCallback eventsChan
-        GLFW.setScrollCallback     win $ Just $ scrollCallback     eventsChan
         GLFW.setKeyCallback        win $ Just $ keyCallback        eventsChan
 
         GLFW.swapInterval 1
 
-        megaMan <- makeDisplayListFromImage "megaman.png" 1
+        megaMan <- makeDisplayListFromImage "megaman.png"
 
         GL.position (GL.Light 0) GL.$= GL.Vertex4 0 1 1 0
         GL.light    (GL.Light 0) GL.$= GL.Enabled
@@ -69,24 +64,18 @@ main = do
         GL.clearColor GL.$= GL.Color4 0.1 0.1 0.1 1
         GL.normalize  GL.$= GL.Enabled
 
-        let zDistClosest  = 0
-            zDistFarthest = 1
-            zDist         = 0.2 --zDistClosest + (zDistFarthest - zDistClosest) / 2
-            env = Env
+        let env = Env
               { envEventsChan    = eventsChan
               , envWindow        = win
               , envMegaMan       = megaMan
-              , envZDistClosest  = zDistClosest
-              , envZDistFarthest = zDistFarthest
               }
             state = State
-              { stateWindowWidth      = width
-              , stateWindowHeight     = height
-              , stateIsCursorInWindow = False
-              , stateViewXAngle       = 0
-              , stateViewYAngle       = 0
-              , stateViewZAngle       = 0
-              , stateZDist            = zDist
+              { stateWindowWidth  = width
+              , stateWindowHeight = height
+              , stateViewXAngle   = 0
+              , stateViewYAngle   = 0
+              , stateViewZAngle   = 0
+              , stateScaleFactor  = 1
               }
         runDemo env state
 
@@ -114,12 +103,10 @@ withWindow width height title f = do
 
 errorCallback      :: TChan Event -> GLFW.Error -> String                                                            -> IO ()
 windowSizeCallback :: TChan Event -> GLFW.Window -> Int -> Int                                                       -> IO ()
-scrollCallback     :: TChan Event -> GLFW.Window -> Double -> Double                                                 -> IO ()
 keyCallback        :: TChan Event -> GLFW.Window -> GLFW.Key -> Int -> GLFW.KeyState -> GLFW.ModifierKeys            -> IO ()
 
 errorCallback      tc e s            = atomically $ writeTChan tc $ EventError      e s
 windowSizeCallback tc win w h        = atomically $ writeTChan tc $ EventWindowSize win w h
-scrollCallback     tc win x y        = atomically $ writeTChan tc $ EventScroll     win x y
 keyCallback        tc win k sc ka mk = atomically $ writeTChan tc $ EventKey        win k sc ka mk
 
 --------------------------------------------------------------------------------
@@ -142,16 +129,11 @@ run = do
 
     (kxrot, kyrot) <- liftIO $ getCursorKeyDirections win
     (jxrot, jyrot) <- liftIO $ getJoystickDirections GLFW.Joystick'1
-    (mxrot, myrot) <- if stateIsCursorInWindow state
-                        then let w = stateWindowWidth  state
-                                 h = stateWindowHeight state
-                             in liftIO $ getMouseDirections win w h
-                        else return (0, 0)
 
     let xa = stateViewXAngle state
         ya = stateViewYAngle state
-        xa' = xa + kxrot + jxrot + mxrot
-        ya' = ya + kyrot + jyrot + myrot
+        xa' = xa + kxrot + jxrot
+        ya' = ya + kyrot + jyrot
 
     modify $ \s -> s
       { stateViewXAngle = xa'
@@ -187,34 +169,38 @@ processEvent ev =
             }
           adjustWindow
 
-      (EventScroll _ x y) -> do
-          let x' = round x :: Int
-              y' = round y :: Int
-          printEvent "scroll" [show x', show y']
-          env <- ask
-          let zDistClosest  = envZDistClosest  env
-              zDistFarthest = envZDistFarthest env
-              inc = (zDistFarthest - zDistClosest) / 100
-          modify $ \s -> s
-            { stateZDist =
-                let zDist' = stateZDist s + realToFrac (negate y * inc)
-                in curb zDistClosest zDistFarthest zDist'
-            }
-          adjustWindow
-
       (EventKey win k scancode ks mk) -> do
           printEvent "key" [show k, show scancode, show ks, showModifierKeys mk]
-          when (ks == GLFW.KeyState'Pressed) $
+          when (isPress ks) $ do
               -- Q, Esc: exit
               when (k == GLFW.Key'Q || k == GLFW.Key'Escape) $
                 liftIO $ GLFW.setWindowShouldClose win True
+              -- -: zoom out
+              when (k == GLFW.Key'Minus) $
+                modify $ \s -> s
+                  { stateScaleFactor =
+                      let sf  = stateScaleFactor s
+                          sf' = sf - 0.5
+                      in if sf' < 1 then 1 else sf'
+                  }
+              -- +: zoom in
+              when (k == GLFW.Key'Equal && GLFW.modifierKeysShift mk) $
+                modify $ \s -> s
+                  { stateScaleFactor = stateScaleFactor s + 0.5
+                  }
+              -- 0: reset angles
+              when (k == GLFW.Key'0) $
+                modify $ \s -> s
+                  { stateViewXAngle = 0
+                  , stateViewYAngle = 0
+                  , stateViewZAngle = 0
+                  }
 
 adjustWindow :: Demo ()
 adjustWindow = do
     state <- get
     let width  = stateWindowWidth  state
         height = stateWindowHeight state
-        zdist  = stateZDist        state
 
     let pos  = GL.Position 0 0
         size = GL.Size (fromIntegral width) (fromIntegral height)
@@ -223,6 +209,7 @@ adjustWindow = do
 
         GL.matrixMode GL.$= GL.Projection
         GL.loadIdentity
+
         let wd2 = realToFrac width  / 2
             hd2 = realToFrac height / 2
             l = negate $ wd2
@@ -233,23 +220,25 @@ adjustWindow = do
             f = max r t
         GL.ortho l r b t c f
 
-        GL.matrixMode GL.$= GL.Modelview 0
-        GL.loadIdentity
-        GL.translate (GL.Vector3 0 0 (negate $ realToFrac zdist) :: GL.Vector3 GL.GLfloat)
+        -- GL.matrixMode GL.$= GL.Modelview 0
+        -- GL.loadIdentity
+
+        -- GL.translate (GL.Vector3 0 0 (realToFrac zDist) :: GL.Vector3 GL.GLfloat)
 
 draw :: Demo ()
 draw = do
     env   <- ask
     state <- get
     let megaMan = envMegaMan env
-        xa = stateViewXAngle state
-        ya = stateViewYAngle state
-        za = stateViewZAngle state
+        xa = stateViewXAngle  state
+        ya = stateViewYAngle  state
+        za = stateViewZAngle  state
+        sf = stateScaleFactor state
     liftIO $ do
-        GL.clear [GL.ColorBuffer, GL.DepthBuffer]
+        GL.clear [GL.ColorBuffer]
         GL.preservingMatrix $ do
             GL.translate origin
-            GL.scale 16 16 (1 :: GL.GLfloat)
+            GL.scale (realToFrac sf) (realToFrac sf) (1 :: GL.GLfloat)
             GL.rotate (realToFrac xa) xunit
             GL.rotate (realToFrac ya) yunit
             GL.rotate (realToFrac za) zunit
@@ -266,10 +255,10 @@ getCursorKeyDirections win = do
     x1 <- isPress `fmap` GLFW.getKey win GLFW.Key'Down
     y0 <- isPress `fmap` GLFW.getKey win GLFW.Key'Left
     y1 <- isPress `fmap` GLFW.getKey win GLFW.Key'Right
-    let x0n = if x0 then   2  else 0
-        x1n = if x1 then (-2) else 0
-        y0n = if y0 then   2  else 0
-        y1n = if y1 then (-2) else 0
+    let x0n = if x0 then   4  else 0
+        x1n = if x1 then (-4) else 0
+        y0n = if y0 then   4  else 0
+        y1n = if y1 then (-4) else 0
     return (x0n + x1n, y0n + y1n)
 
 getJoystickDirections :: GLFW.Joystick -> IO (Double, Double)
@@ -278,15 +267,6 @@ getJoystickDirections js = do
     return $ case maxes of
       (Just (x:y:_)) -> (y, x)
       _              -> (0, 0)
-
-getMouseDirections :: GLFW.Window -> Int -> Int -> IO (Double, Double)
-getMouseDirections win w h = do
-    (x, y) <- GLFW.getCursorPos win
-    let wd2 = realToFrac w / 2
-        hd2 = realToFrac h / 2
-        yrot = (x - wd2) / wd2
-        xrot = (hd2 - y) / hd2
-    return (realToFrac xrot, realToFrac yrot)
 
 isPress :: GLFW.KeyState -> Bool
 isPress GLFW.KeyState'Pressed   = True
@@ -310,9 +290,3 @@ showModifierKeys mk =
          , if GLFW.modifierKeysAlt     mk then Just "alt"     else Nothing
          , if GLFW.modifierKeysSuper   mk then Just "super"   else Nothing
          ]
-
-curb :: Ord a => a -> a -> a -> a
-curb l h x
-  | x < l     = l
-  | x > h     = h
-  | otherwise = x
