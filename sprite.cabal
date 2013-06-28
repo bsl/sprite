@@ -19,7 +19,7 @@ executable sprite
   main-is: Main.hs
 
   build-depends:
-    GLFW-b       == 0.*,
+    GLFW-b       == 1.*,
     JuicyPixels  == 3.*,
     OpenGL       == 2.8.*,
     base         == 4.*,
@@ -34,4 +34,4 @@ executable sprite
 
 source-repository head
   type:     git
-  location: git://github.com/bsl/GLFW-b-demo.git
+  location: git://github.com/bsl/sprite.git
