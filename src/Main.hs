@@ -6,6 +6,7 @@ import Control.Concurrent.STM    (TChan, atomically, newTChanIO, tryReadTChan, w
 import Control.Monad             (unless, when, void)
 import Control.Monad.RWS.Strict  (RWST, ask, asks, evalRWST, get, liftIO, modify)
 import Data.Maybe                (catMaybes)
+import System.Environment        (getArgs)
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.UI.GLFW          as GLFW
@@ -17,7 +18,7 @@ import Sprite (makeDisplayListFromImage)
 data Env = Env
     { envEventsChan :: TChan Event
     , envWindow     :: !GLFW.Window
-    , envMegaMan    :: !GL.DisplayList
+    , envSpriteDL    :: !GL.DisplayList
     }
 
 data State = State
@@ -43,19 +44,26 @@ data Event =
 
 main :: IO ()
 main = do
+    args <- getArgs
+    case args of
+      [fp] -> go fp
+      _ -> return ()
+
+go :: FilePath -> IO ()
+go fp = do
     let width  = 640
         height = 480
 
     eventsChan <- newTChanIO :: IO (TChan Event)
 
-    withWindow width height "Mega Man" $ \win -> do
+    withWindow width height "sprite" $ \win -> do
         GLFW.setErrorCallback          $ Just $ errorCallback      eventsChan
         GLFW.setWindowSizeCallback win $ Just $ windowSizeCallback eventsChan
         GLFW.setKeyCallback        win $ Just $ keyCallback        eventsChan
 
         GLFW.swapInterval 1
 
-        megaMan <- makeDisplayListFromImage "megaman.png"
+        spriteDL <- makeDisplayListFromImage fp
 
         GL.position (GL.Light 0) GL.$= GL.Vertex4 0 1 1 0
         GL.light    (GL.Light 0) GL.$= GL.Enabled
@@ -65,9 +73,9 @@ main = do
         GL.normalize  GL.$= GL.Enabled
 
         let env = Env
-              { envEventsChan    = eventsChan
-              , envWindow        = win
-              , envMegaMan       = megaMan
+              { envEventsChan = eventsChan
+              , envWindow     = win
+              , envSpriteDL   = spriteDL
               }
             state = State
               { stateWindowWidth  = width
@@ -180,13 +188,13 @@ processEvent ev =
                 modify $ \s -> s
                   { stateScaleFactor =
                       let sf  = stateScaleFactor s
-                          sf' = sf - 0.5
+                          sf' = sf - 0.2
                       in if sf' < 1 then 1 else sf'
                   }
               -- +: zoom in
               when (k == GLFW.Key'Equal && GLFW.modifierKeysShift mk) $
                 modify $ \s -> s
-                  { stateScaleFactor = stateScaleFactor s + 0.5
+                  { stateScaleFactor = stateScaleFactor s + 0.2
                   }
               -- 0: reset angles
               when (k == GLFW.Key'0) $
@@ -212,10 +220,10 @@ adjustWindow = do
 
         let wd2 = realToFrac width  / 2
             hd2 = realToFrac height / 2
-            l = negate $ wd2
-            r =          wd2
-            b = negate $ hd2
-            t =          hd2
+            l = negate wd2
+            r =        wd2
+            b = negate hd2
+            t =        hd2
             c = min l b
             f = max r t
         GL.ortho l r b t c f
@@ -229,7 +237,7 @@ draw :: Demo ()
 draw = do
     env   <- ask
     state <- get
-    let megaMan = envMegaMan env
+    let spriteDL = envSpriteDL env
         xa = stateViewXAngle  state
         ya = stateViewYAngle  state
         za = stateViewZAngle  state
@@ -242,7 +250,7 @@ draw = do
             GL.rotate (realToFrac xa) xunit
             GL.rotate (realToFrac ya) yunit
             GL.rotate (realToFrac za) zunit
-            GL.callList megaMan
+            GL.callList spriteDL
       where
         origin = GL.Vector3 0 0 0 :: GL.Vector3 GL.GLfloat
         xunit  = GL.Vector3 1 0 0 :: GL.Vector3 GL.GLfloat
