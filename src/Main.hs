@@ -53,25 +53,25 @@ main = do
     eventsChan <- newTChanIO :: IO (TChan Event)
 
     withWindow width height "Mega Man" $ \win -> do
-        GLFW.setErrorCallback               $ Just $ errorCallback           eventsChan
-        GLFW.setWindowSizeCallback      win $ Just $ windowSizeCallback      eventsChan
-        GLFW.setScrollCallback          win $ Just $ scrollCallback          eventsChan
-        GLFW.setKeyCallback             win $ Just $ keyCallback             eventsChan
+        GLFW.setErrorCallback          $ Just $ errorCallback      eventsChan
+        GLFW.setWindowSizeCallback win $ Just $ windowSizeCallback eventsChan
+        GLFW.setScrollCallback     win $ Just $ scrollCallback     eventsChan
+        GLFW.setKeyCallback        win $ Just $ keyCallback        eventsChan
 
         GLFW.swapInterval 1
 
-        megaMan <- makeDisplayListFromImage "megaman.png" 0.01
+        megaMan <- makeDisplayListFromImage "megaman.png" 1
 
-        GL.position (GL.Light 0) GL.$= GL.Vertex4 1 1 1 0
+        GL.position (GL.Light 0) GL.$= GL.Vertex4 0 1 1 0
         GL.light    (GL.Light 0) GL.$= GL.Enabled
         GL.lighting   GL.$= GL.Enabled
-        GL.depthFunc  GL.$= Just GL.Less
-        GL.clearColor GL.$= GL.Color4 0.05 0.05 0.05 1
+        GL.depthFunc  GL.$= Nothing -- Just GL.Less
+        GL.clearColor GL.$= GL.Color4 0.1 0.1 0.1 1
         GL.normalize  GL.$= GL.Enabled
 
         let zDistClosest  = 0
             zDistFarthest = 1
-            zDist         = zDistClosest + (zDistFarthest - zDistClosest) / 2
+            zDist         = 0.2 --zDistClosest + (zDistFarthest - zDistClosest) / 2
             env = Env
               { envEventsChan    = eventsChan
               , envWindow        = win
@@ -219,19 +219,22 @@ adjustWindow = do
     let pos  = GL.Position 0 0
         size = GL.Size (fromIntegral width) (fromIntegral height)
     liftIO $ do
+        GL.viewport GL.$= (pos, size)
+
         GL.matrixMode GL.$= GL.Projection
         GL.loadIdentity
         let wd2 = realToFrac width  / 2
             hd2 = realToFrac height / 2
-            l = negate $ wd2 / 1000
-            r =          wd2 / 1000
-            b = negate $ hd2 / 1000
-            t =          hd2 / 1000
-        GL.ortho2D l r b t
+            l = negate $ wd2
+            r =          wd2
+            b = negate $ hd2
+            t =          hd2
+            c = min l b
+            f = max r t
+        GL.ortho l r b t c f
 
         GL.matrixMode GL.$= GL.Modelview 0
         GL.loadIdentity
-        GL.viewport GL.$= (pos, size)
         GL.translate (GL.Vector3 0 0 (negate $ realToFrac zdist) :: GL.Vector3 GL.GLfloat)
 
 draw :: Demo ()
@@ -245,10 +248,11 @@ draw = do
     liftIO $ do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.preservingMatrix $ do
+            GL.translate origin
+            GL.scale 16 16 (1 :: GL.GLfloat)
             GL.rotate (realToFrac xa) xunit
             GL.rotate (realToFrac ya) yunit
             GL.rotate (realToFrac za) zunit
-            GL.translate origin
             GL.callList megaMan
       where
         origin = GL.Vector3 0 0 0 :: GL.Vector3 GL.GLfloat
@@ -262,10 +266,10 @@ getCursorKeyDirections win = do
     x1 <- isPress `fmap` GLFW.getKey win GLFW.Key'Down
     y0 <- isPress `fmap` GLFW.getKey win GLFW.Key'Left
     y1 <- isPress `fmap` GLFW.getKey win GLFW.Key'Right
-    let x0n = if x0 then   1  else 0
-        x1n = if x1 then (-1) else 0
-        y0n = if y0 then   1  else 0
-        y1n = if y1 then (-1) else 0
+    let x0n = if x0 then   2  else 0
+        x1n = if x1 then (-2) else 0
+        y0n = if y0 then   2  else 0
+        y1n = if y1 then (-2) else 0
     return (x0n + x1n, y0n + y1n)
 
 getJoystickDirections :: GLFW.Joystick -> IO (Double, Double)
