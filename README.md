@@ -1,5 +1,5 @@
-This is an experiment about converting sprites to OpenGL quads.
-Right now, this depends on as-yet-unreleased [GLFW-b 1.*][1].
+This is an experiment about converting sprites to OpenGL quads. This depends on
+as-yet-unreleased [GLFW-b 1.*][1]. Here's a [screenshot][2].
 
 Example:
 
@@ -12,3 +12,4 @@ Example:
 - q, Esc: exit
 
 [1]: https://github.com/bsl/GLFW-b/tree/glfw3-th
+[2]: http://i.imgur.com/ihlASUS.png
